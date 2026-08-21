@@ -1,4 +1,4 @@
-# Pong-style game logic — self-checking testbenches
+# Pong-style game logic self-checking testbenches
 
 Four VHDL-93 testbenches, each self-checking (they assert expected behaviour and
 print a single `PASS`/`FAIL` line). They run in **Vivado xsim** and in **GHDL**
@@ -21,8 +21,8 @@ make clean
 
 GHDL needs two flags, already baked into the Makefile:
 
-- `-fsynopsys` — the design uses the Synopsys `std_logic_unsigned` package.
-- `-fexplicit` — resolves the `"="` operator overload that `std_logic_unsigned`
+- `-fsynopsys` the design uses the Synopsys `std_logic_unsigned` package.
+- `-fexplicit` resolves the `"="` operator overload that `std_logic_unsigned`
   introduces on top of `std_logic_1164`. Vivado xsim resolves this silently;
   GHDL needs to be told. This is a simulator-elaboration flag only — it does
   **not** change design behaviour.
