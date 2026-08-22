@@ -1,74 +1,59 @@
-# ---------------------------------------------------------------------------
-# GHDL build/sim for the Pong-style game logic and its testbenches.
-# Requires: ghdl (mcode or llvm).
-#
-#   make sim       run the four unit/integration testbenches
-#   make sim-top   run the full top-level structural testbench
-#   make all       both of the above
-#
-# The DUT uses the Synopsys std_logic_unsigned package, so GHDL needs
-# -fsynopsys, and -fexplicit resolves the "=" operator overload it triggers.
-# Everything is VHDL-93, so this also compiles under Vivado xsim unchanged.
-# ---------------------------------------------------------------------------
-GHDL   ?= ghdl
-STD     = --std=93
-FLAGS   = -fsynopsys -fexplicit
-WORKDIR = work
+# Pong-style game logic — self-checking testbenches
 
-# --- game-logic core (used by every flow) ---------------------------------
-CORE = src/game_state_machine.vhd \
-	   src/counter.vhd \
-	   src/input_buffer.vhd \
-	   src/ssd_decoder.vhd
+Four VHDL-93 testbenches, each self-checking (they assert expected behaviour and
+print a single `PASS`/`FAIL` line). They run in **Vivado xsim** and in **GHDL**
+(license-free `make sim`).
 
-# --- unit + integration testbenches ---------------------------------------
-TB = tb/tb_game_state_machine.vhd \
-	 tb/tb_input_buffer.vhd \
-	 tb/tb_ssd_decoder.vhd \
-	 tb/tb_game_integration.vhd
+| Testbench | DUT | What it proves |
+|-----------|-----|----------------|
+| `tb_game_state_machine.vhd` | `game_state_machine` | Full rally FSM: serve, climb (`leds` 000→110→111), both S2 branches (return vs miss), descend, both S4 branches (return vs miss), and **async reset** mid-operation. Checks the exact `(state, leds)` pair after every clock. |
+| `tb_input_buffer.vhd` | `input_buffer` | Press latching between game-clock ticks, sticky hold, **clear on `game_clk` rising edge** (edge-triggered, not level), p1-over-p2 priority on simultaneous press, and that `reset_in` is a pure passthrough that does **not** clear the latches. |
+| `tb_ssd_decoder.vhd` | `ssd_decoder` | Exhaustive: all 16 codes on `digit1` (`toggle=0`) and all 16 on `digit2` (`toggle=1`) against a golden segment table, plus the `cat` select bit. 32 checks total. |
+| `tb_game_integration.vhd` | `game_state_machine` + `counter` | End-to-end scoring: player1 wins when player2 keeps missing (`winner=01`), player2 wins the mirror case (`winner=10`, and asserts the ball actually reached the left edge), and an endless rally scores nobody (`winner=00`). |
 
-TOPS = tb_game_state_machine tb_input_buffer tb_ssd_decoder tb_game_integration
+## Running with GHDL
 
-# --- extra leaf cells the structural top needs ----------------------------
-# Note: lab6_clock_divider / lab7_clk60hz are deliberately NOT compiled for the
-# top-level sim -- tb/sim_dividers.vhd supplies fast stand-ins of the same
-# entities so a full game finishes in a few hundred edges. For a hardware build
-# you compile src/lab6_clock_divider.vhd and src/lab7_clk60hz.vhd instead.
-TOPSRC = src/led_array.vhd \
-		 src/lab7_mux.vhd \
-		 src/main_structural.vhd
+```sh
+make sim        # analyze + elaborate + run all four, fail on any assertion
+make tb_ssd_decoder   # or run one by name
+make clean
+```
 
-GHDLFLAGS = $(STD) $(FLAGS) --workdir=$(WORKDIR) -P$(WORKDIR)
+GHDL needs two flags, already baked into the Makefile:
 
-.PHONY: all sim sim-top analyze clean $(TOPS)
+- `-fsynopsys` — the design uses the Synopsys `std_logic_unsigned` package.
+- `-fexplicit` — resolves the `"="` operator overload that `std_logic_unsigned`
+  introduces on top of `std_logic_1164`. Vivado xsim resolves this silently;
+  GHDL needs to be told. This is a simulator-elaboration flag only — it does
+  **not** change design behaviour.
 
-all: sim sim-top
+## Running in Vivado xsim
 
-$(WORKDIR):
-	mkdir -p $(WORKDIR)
+Add `src/*.vhd` and `tb/*.vhd` to the simulation set, set the top to the
+testbench you want (e.g. `tb_game_state_machine`), and run. No special flags are
+needed — xsim handles `std_logic_unsigned` natively. Each TB stops itself
+(it gates its own clock), so the run ends on its own and prints the PASS line to
+the console.
 
-analyze: | $(WORKDIR)
-	$(GHDL) -a $(GHDLFLAGS) $(CORE) $(TB)
+## Note on the integration testbench
 
-# Elaborate + run a single unit testbench, e.g.:  make tb_ssd_decoder
-$(TOPS): analyze
-	$(GHDL) -e $(GHDLFLAGS) $@
-	$(GHDL) -r $(GHDLFLAGS) $@ --stop-time=2ms --assert-level=error
+`main_structural` also instantiates `lab6_clock_divider`, `lab7_clk60hz`,
+`led_array` and `lab7_mux`, which are not in this source set, so a testbench
+bound directly to `main_structural` cannot elaborate. `game_state_machine` and
+`counter` *are* the whole game-logic core and are wired here exactly as
+`main_structural` wires them (shared game clock and reset, FSM `state` → counter
+`state`), so the integration TB exercises the real scoring datapath. If you drop
+the four missing helper modules into `src/`, a top-level `main_structural`
+testbench is a small addition — say the word.
 
-sim: analyze
-	@for t in $(TOPS); do \
-		echo "=== $$t ==="; \
-		$(GHDL) -e $(GHDLFLAGS) $$t; \
-		$(GHDL) -r $(GHDLFLAGS) $$t --stop-time=2ms --assert-level=error; \
-	done
+## Files
 
-# Full structural top. Compiles the core, the extra leaf cells, the FAST
-# sim-only dividers, main_structural, and the top-level TB, then runs to a win.
-sim-top: | $(WORKDIR)
-	$(GHDL) -a $(GHDLFLAGS) $(CORE) src/led_array.vhd src/lab7_mux.vhd tb/sim_dividers.vhd src/main_structural.vhd tb/tb_main_structural.vhd
-	$(GHDL) -e $(GHDLFLAGS) tb_main_structural
-	@echo "=== tb_main_structural ==="
-	$(GHDL) -r $(GHDLFLAGS) tb_main_structural --stop-time=2ms --assert-level=error
+```
+src/    game_state_machine.vhd  counter.vhd  input_buffer.vhd  ssd_decoder.vhd
+tb/     tb_game_state_machine.vhd  tb_input_buffer.vhd
+        tb_ssd_decoder.vhd  tb_game_integration.vhd
+Makefile
+```
 
-clean:
-	rm -rf $(WORKDIR) *.cf work-obj*.cf e~*.o *.o $(TOPS) tb_main_structural
+The `src/` copies here were transcribed from the reviewed source so the repo runs
+out of the box; use your canonical files if they differ.
