@@ -54,14 +54,6 @@ reaches inside the DUT: it detects the win from the display itself (a win forces
 the winning digit to blank while `game_clk='0'`, and pre-win the score digits are
 never blank), so a blank `seg` while `cat='0'` can only mean `winner="01"`.
 
-## Two things worth knowing about the netlist
-
-- **`lab7_mux` is dead logic.** Its output `mux_out` isn't connected to anything;
-  `ssd_decoder` does its own digit multiplexing internally. It synthesises away.
-- **`lab7_clk60hz` isn't 60 Hz on a 100 MHz clock.** It divides its input by
-  200k, so it yields ~500 Hz at 100 MHz (≈60 Hz only near a 12 MHz input). It
-  works as a refresh tick either way; the name is just optimistic.
-
 ## Files
 
 ```
